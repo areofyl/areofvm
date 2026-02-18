@@ -1,5 +1,5 @@
 #pragma once
-#include "gates/gates.h"
+#include "../gates/gates.h"
 
 // SR Latch — the simplest memory element.
 // Built from two cross-coupled NOR gates (like in the book).

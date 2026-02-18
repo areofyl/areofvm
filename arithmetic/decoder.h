@@ -1,5 +1,5 @@
 #pragma once
-#include "gates/gates.h"
+#include "../gates/gates.h"
 #include <array>
 
 // N-to-2^N Decoder — selects one of 2^N output lines based on N input bits.

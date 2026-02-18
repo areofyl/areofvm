@@ -1,6 +1,6 @@
 #pragma once
 #include "flip_flop.h"
-#include "gates/gates.h"
+#include "../gates/gates.h"
 #include <array>
 
 // N-bit binary counter — counts up on each rising clock edge.
