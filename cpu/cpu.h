@@ -211,6 +211,13 @@ private:
         if (op == 0x0) { execute_misc(); return; }
         if (op == 0xE) { push16(pc.to_int()); jump_to(ir.imm16()); return; }  // CALL
 
+        // Indexed load/store: rs=1 signals "use R2:R3 as address"
+        if (bits_to_int(ir.rs()) == 1) {
+            uint16_t addr = (reg_file.get_reg(2) << 8) | reg_file.get_reg(3);
+            if (op == 0x2) { write_reg(ir.rd(), to_bits8(bus.read_byte(addr))); return; }  // LDR
+            if (op == 0x3) { bus.write_byte(addr, from_bits8(reg_file.rd_out)); return; }   // STR
+        }
+
         // ALU
         Mux2<8> alu_b_mux;
         alu_b_mux.select(s.alu_src_imm, reg_file.rs_out, ir.imm8());
