@@ -5,14 +5,27 @@
 #include <array>
 #include <cstdint>
 
-// 4-register file: R0-R3, each 8 bits.
-// Two read ports, one write port.
+// RegisterFile — the CPU's fast scratch storage.
+//
+// Contains 4 general-purpose 8-bit registers (R0-R3).
+// Two read ports (Rd and Rs can be read simultaneously)
+// and one write port.
+//
+// Reading uses Mux4 — the 2-bit select lines pick which
+// register's output gets routed to the output.
+//
+// Writing uses a Decoder — the 2-bit select lines activate
+// exactly one register's load enable, so only that register
+// captures the new data on the clock edge.
 
 class RegisterFile {
 public:
     std::array<bool, 8> rd_out = {};
     std::array<bool, 8> rs_out = {};
 
+    // Read two registers simultaneously.
+    // rd_sel picks which register appears on rd_out.
+    // rs_sel picks which register appears on rs_out.
     void read(const std::array<bool, 2>& rd_sel,
               const std::array<bool, 2>& rs_sel) {
         rd_mux.select(rd_sel[0], rd_sel[1],
@@ -25,6 +38,10 @@ public:
         rs_out = rs_mux.output;
     }
 
+    // Write data into one register on the rising clock edge.
+    // The decoder converts the 2-bit sel into a one-hot signal,
+    // so only the selected register's load enable goes high.
+    // write_en gates the whole thing — if false, nothing writes.
     void write(bool clk, const std::array<bool, 2>& sel,
                bool write_en, const std::array<bool, 8>& data) {
         dec.decode(sel, write_en);
