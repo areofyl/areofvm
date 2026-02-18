@@ -41,7 +41,7 @@ inline uint16_t bits_to_int(const std::array<bool, N>& bits) {
     return val;
 }
 
-static constexpr uint16_t IVT_BASE = 0xFF00;
+static constexpr uint16_t IVT_BASE = 0xEFF0;
 static constexpr int MAX_INTERRUPTS = 8;
 
 // 8-bit CPU with 16-bit address space and interrupt support.
@@ -58,7 +58,7 @@ public:
 
     void reset() {
         pc.reset();
-        sp = 0xFFFF;
+        sp = 0xEFFF;
         halted = false;
         int_enabled = false;
         int_pending = 0;
@@ -94,7 +94,7 @@ private:
     Flags flags;
     ControlUnit control;
     bool halted = false;
-    uint16_t sp = 0xFFFF;
+    uint16_t sp = 0xEFFF;
     bool int_enabled = false;
     uint8_t int_pending = 0;
 
