@@ -30,7 +30,6 @@ struct ControlSignals {
     bool pc_jump      = false;
     bool flags_write  = false;
     bool halt         = false;
-    bool io_write     = false;
     bool is_mov       = false;
 };
 
@@ -68,10 +67,11 @@ public:
         bool jz   = dec.outputs[0xB];
         bool jnz  = dec.outputs[0xC];
         bool addi = dec.outputs[0xD];
-        bool out  = dec.outputs[0xE];
+        bool call = dec.outputs[0xE];
         bool hlt  = dec.outputs[0xF];
 
-        (void)nop;  // NOP produces no active signals
+        (void)nop;   // NOP (and PUSH/POP/RET) handled directly in CPU
+        (void)call;  // CALL handled directly in CPU
 
         // Which instructions write back to a register?
         signals.reg_write = gate::OR(gate::OR(gate::OR(ldi, ld), gate::OR(add, sub)),
@@ -104,8 +104,7 @@ public:
                               gate::OR(gate::OR(and_, or_),
                                        gate::OR(cmp, addi)));
 
-        signals.halt     = hlt;
-        signals.io_write = out;
+        signals.halt = hlt;
     }
 
 private:
