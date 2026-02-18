@@ -141,7 +141,7 @@ Device raises interrupt
 
 | Op | Mnemonic | Description |
 |----|----------|-------------|
-| 0x0 | misc | NOP, CLI, STI, RTI, PUSH, POP, RET, SWI |
+| 0x0 | misc | NOP, CLI, STI, RTI, PUSH, POP, RET, SWI, JC, JNC |
 | 0x1 | LDI Rd, imm | Rd = imm8 |
 | 0x2 | LD Rd, [imm16] | Rd = mem[imm16] |
 | 0x3 | ST Rd, [imm16] | mem[imm16] = Rd |
