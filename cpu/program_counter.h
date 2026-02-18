@@ -5,18 +5,30 @@
 #include <array>
 #include <cstdint>
 
-// Program counter: holds address of current instruction.
-// Increments by 2 each cycle, or loads a jump address.
+// ProgramCounter — tracks which instruction the CPU is executing.
+//
+// Each cycle it either:
+//   - Increments by 2 (our instructions are 16-bit = 2 bytes)
+//   - Loads an absolute address (for JMP/JZ/JNZ)
+//
+// Internally: an adder computes PC+2, a mux picks between
+// that and the jump target, and a register stores the result.
+//
+// 8-bit PC means 256-byte address space (128 instructions max).
 
 class ProgramCounter {
 public:
     std::array<bool, 8> value = {};
 
+    // jump=false: PC = PC + 2 (next instruction)
+    // jump=true:  PC = jump_addr (branch taken)
     void clock(bool clk, bool jump, const std::array<bool, 8>& jump_addr) {
-        // add 2 to current value
         adder.add(value, two);
-        // pick: jump address or incremented value
+
+        // Mux2: sel=0 gives first arg, sel=1 gives second arg.
+        // So jump=0 → adder.sum (normal flow), jump=1 → jump_addr.
         mux.select(jump, adder.sum, jump_addr);
+
         reg.clock(clk, true, mux.output);
         value = reg.data_out;
     }
@@ -40,5 +52,5 @@ private:
     Register<8> reg;
     RippleCarryAdder<8> adder;
     Mux2<8> mux;
-    std::array<bool, 8> two = {false, true}; // constant 2
+    static constexpr std::array<bool, 8> two = {false, true, false, false, false, false, false, false};
 };
