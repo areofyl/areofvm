@@ -112,23 +112,46 @@ private:
     // EXECUTE: Carry out the instruction based on control signals.
     void execute(const ControlSignals& s) {
         // Opcode 0x0 is overloaded: Rs field selects sub-operation
-        // Rs=0: NOP, Rs=1: PUSH Rd, Rs=2: POP Rd
-        uint8_t opcode_val = from_bits8({ir.opcode()[0], ir.opcode()[1], ir.opcode()[2], ir.opcode()[3], false, false, false, false});
-        uint8_t rs_val = ir.rs()[0] + (ir.rs()[1] << 1);
-        if (opcode_val == 0x0 && rs_val == 1) {
-            // PUSH Rd: sp--, mem[sp] = Rd
+        //   Rs=0: NOP, Rs=1: PUSH Rd, Rs=2: POP Rd, Rs=3: RET
+        // Opcode 0xE is now CALL imm8 (was OUT)
+        uint8_t op = ir.opcode()[0] | (ir.opcode()[1] << 1) | (ir.opcode()[2] << 2) | (ir.opcode()[3] << 3);
+        uint8_t rs_field = ir.rs()[0] | (ir.rs()[1] << 1);
+
+        if (op == 0x0) {
+            if (rs_field == 1) {
+                // PUSH Rd
+                sp--;
+                bus.write_byte(sp, from_bits8(reg_file.rd_out));
+                return;
+            }
+            if (rs_field == 2) {
+                // POP Rd
+                auto val = to_bits8(bus.read_byte(sp));
+                sp++;
+                reg_file.write(false, ir.rd(), true, val);
+                reg_file.write(true, ir.rd(), true, val);
+                return;
+            }
+            if (rs_field == 3) {
+                // RET: pop return address, jump to it
+                uint8_t ret_addr = bus.read_byte(sp);
+                sp++;
+                auto addr_bits = to_bits8(ret_addr);
+                pc.clock(false, true, addr_bits);
+                pc.clock(true, true, addr_bits);
+                return;
+            }
+            return; // NOP
+        }
+        if (op == 0xE) {
+            // CALL imm8: push return address (current PC), jump to imm8
             sp--;
-            bus.write_byte(sp, from_bits8(reg_file.rd_out));
+            bus.write_byte(sp, pc.to_int());
+            pc.clock(false, true, ir.imm8());
+            pc.clock(true, true, ir.imm8());
             return;
         }
-        if (opcode_val == 0x0 && rs_val == 2) {
-            // POP Rd: Rd = mem[sp], sp++
-            auto val = to_bits8(bus.read_byte(sp));
-            sp++;
-            reg_file.write(false, ir.rd(), true, val);
-            reg_file.write(true, ir.rd(), true, val);
-            return;
-        }
+
         // ALU input B: either Rs value (register-register) or imm8 (ADDI)
         Mux2<8> alu_b_mux;
         alu_b_mux.select(s.alu_src_imm, reg_file.rs_out, ir.imm8());
@@ -173,11 +196,6 @@ private:
         if (s.pc_jump) {
             pc.clock(false, true, ir.imm8());
             pc.clock(true, true, ir.imm8());
-        }
-
-        // I/O: write register value to I/O address space
-        if (s.io_write) {
-            bus.write_byte(Bus::IO_BASE, from_bits8(reg_file.rd_out));
         }
 
         if (s.halt) {
