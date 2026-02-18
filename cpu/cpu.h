@@ -50,6 +50,7 @@ public:
 
     void reset() {
         pc.reset();
+        sp = 0xFF;
         halted = false;
     }
 
@@ -67,6 +68,7 @@ public:
     uint8_t get_pc() const { return pc.to_int(); }
     bool get_zero() const { return flags.zero; }
     bool get_carry() const { return flags.carry; }
+    uint8_t get_sp() const { return sp; }
 
 private:
     Bus& bus;
@@ -77,6 +79,7 @@ private:
     Flags flags;
     ControlUnit control;
     bool halted = false;
+    uint8_t sp = 0xFF;  // stack pointer, starts at top of memory, grows down
 
     // FETCH: Read the 16-bit instruction at PC from memory.
     // Memory is 8-bit, so we read two bytes: lo at PC, hi at PC+1.
@@ -108,6 +111,24 @@ private:
 
     // EXECUTE: Carry out the instruction based on control signals.
     void execute(const ControlSignals& s) {
+        // Opcode 0x0 is overloaded: Rs field selects sub-operation
+        // Rs=0: NOP, Rs=1: PUSH Rd, Rs=2: POP Rd
+        uint8_t opcode_val = from_bits8({ir.opcode()[0], ir.opcode()[1], ir.opcode()[2], ir.opcode()[3], false, false, false, false});
+        uint8_t rs_val = ir.rs()[0] + (ir.rs()[1] << 1);
+        if (opcode_val == 0x0 && rs_val == 1) {
+            // PUSH Rd: sp--, mem[sp] = Rd
+            sp--;
+            bus.write_byte(sp, from_bits8(reg_file.rd_out));
+            return;
+        }
+        if (opcode_val == 0x0 && rs_val == 2) {
+            // POP Rd: Rd = mem[sp], sp++
+            auto val = to_bits8(bus.read_byte(sp));
+            sp++;
+            reg_file.write(false, ir.rd(), true, val);
+            reg_file.write(true, ir.rd(), true, val);
+            return;
+        }
         // ALU input B: either Rs value (register-register) or imm8 (ADDI)
         Mux2<8> alu_b_mux;
         alu_b_mux.select(s.alu_src_imm, reg_file.rs_out, ir.imm8());
