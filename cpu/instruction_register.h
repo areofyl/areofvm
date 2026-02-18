@@ -3,61 +3,52 @@
 #include <array>
 #include <cstdint>
 
-// InstructionRegister — holds the 16-bit instruction being executed.
-//
-// Memory is 8 bits wide, so instructions are fetched in two halves:
-//   lo = memory[PC]     (bits 7-0, the immediate value)
-//   hi = memory[PC+1]   (bits 15-8, opcode + register selects)
-//
-// Bit layout of a full instruction (LSB at index 0):
-//
-//   hi byte:                    lo byte:
-//   [7  6  5  4  3  2  1  0]   [7  6  5  4  3  2  1  0]
-//    op op op op Rd Rd Rs Rs     im im im im im im im im
-//    15 14 13 12 11 10  9  8      7  6  5  4  3  2  1  0
-//
-// The extraction methods pull out each field as a bool array (LSB first).
+// 24-bit instruction register. Three bytes:
+//   byte0 = imm_lo   (bits 7-0)    — low byte of immediate
+//   byte1 = imm_hi   (bits 15-8)   — high byte of immediate
+//   byte2 = opcode+regs (bits 23-16) — opcode[7:4] rd[3:2] rs[1:0]
 
 class InstructionRegister {
 public:
-    void load_lo(bool clk, bool en, const std::array<bool, 8>& data) {
-        lo.clock(clk, en, data);
+    void load_byte0(bool clk, bool en, const std::array<bool, 8>& data) {
+        b0.clock(clk, en, data);
+    }
+    void load_byte1(bool clk, bool en, const std::array<bool, 8>& data) {
+        b1.clock(clk, en, data);
+    }
+    void load_byte2(bool clk, bool en, const std::array<bool, 8>& data) {
+        b2.clock(clk, en, data);
     }
 
-    void load_hi(bool clk, bool en, const std::array<bool, 8>& data) {
-        hi.clock(clk, en, data);
-    }
-
-    // Opcode: bits 15-12 (hi byte bits 7-4)
     std::array<bool, 4> opcode() const {
-        return {hi.data_out[4], hi.data_out[5], hi.data_out[6], hi.data_out[7]};
+        return {b2.data_out[4], b2.data_out[5], b2.data_out[6], b2.data_out[7]};
     }
 
-    // Destination register: bits 11-10 (hi byte bits 3-2)
     std::array<bool, 2> rd() const {
-        return {hi.data_out[2], hi.data_out[3]};
+        return {b2.data_out[2], b2.data_out[3]};
     }
 
-    // Source register: bits 9-8 (hi byte bits 1-0)
     std::array<bool, 2> rs() const {
-        return {hi.data_out[0], hi.data_out[1]};
+        return {b2.data_out[0], b2.data_out[1]};
     }
 
-    // Immediate value: bits 7-0 (entire lo byte)
+    // 8-bit immediate (low byte only, for LDI etc)
     std::array<bool, 8> imm8() const {
-        return lo.data_out;
+        return b0.data_out;
     }
 
-    uint16_t to_int() const {
-        uint16_t v = 0;
+    // 16-bit immediate (for JMP, CALL, LD/ST addresses)
+    std::array<bool, 16> imm16() const {
+        std::array<bool, 16> val = {};
         for (int i = 0; i < 8; i++) {
-            if (lo.data_out[i]) v |= (1 << i);
-            if (hi.data_out[i]) v |= (1 << (i + 8));
+            val[i] = b0.data_out[i];
+            val[i + 8] = b1.data_out[i];
         }
-        return v;
+        return val;
     }
 
 private:
-    Register<8> lo;
-    Register<8> hi;
+    Register<8> b0;  // imm_lo
+    Register<8> b1;  // imm_hi
+    Register<8> b2;  // opcode + rd + rs
 };
