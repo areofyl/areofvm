@@ -35,6 +35,22 @@ public:
         zero  = zero_ff.q;
     }
 
+    // Pack flags into a byte for saving to stack (bit 0=zero, bit 1=carry)
+    uint8_t pack() const {
+        return (zero ? 1 : 0) | (carry ? 2 : 0);
+    }
+
+    // Restore flags from a packed byte
+    void unpack(uint8_t byte) {
+        zero  = byte & 1;
+        carry = (byte >> 1) & 1;
+        // Force flip-flops to match
+        zero_ff.clock(false, zero);
+        zero_ff.clock(true, zero);
+        carry_ff.clock(false, carry);
+        carry_ff.clock(true, carry);
+    }
+
 private:
     DFlipFlop carry_ff;
     DFlipFlop zero_ff;
