@@ -32,8 +32,10 @@ public:
         if (!enabled) return;
         if (counter > 0) counter--;
         if (counter == 0) {
-            fired = true;
-            cpu.raise_interrupt(1);
+            if (!fired) {
+                fired = true;
+                cpu.raise_interrupt(1);
+            }
             counter = reload;
         }
     }
