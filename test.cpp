@@ -288,6 +288,46 @@ bool test_timer_device() {
     return pass;
 }
 
+bool test_uart() {
+    // CPU writes 'H' and 'i' to UART TX (0xF002), then reads a char
+    // from RX that the host pushed. Verifies both directions work.
+    Computer c;
+
+    // IVT entry 2 (UART interrupt) → handler at 0x0100
+    c.get_bus().write_byte(0xEFF4, 0x00);
+    c.get_bus().write_byte(0xEFF5, 0x01);
+
+    // Main program: write 'H' and 'i' to UART data register
+    std::vector<uint8_t> prog;
+    emit(prog, 0x1, 0, 0, 'H');         // LDI R0, 'H'
+    emit(prog, 0x3, 0, 0, 0xF002);      // ST R0, [0xF002] (UART data)
+    emit(prog, 0x1, 0, 0, 'i');         // LDI R0, 'i'
+    emit(prog, 0x3, 0, 0, 0xF002);      // ST R0, [0xF002]
+    // Now read a char from RX (we'll push one from host side first)
+    emit(prog, 0x2, 1, 0, 0xF002);      // LD R1, [0xF002] (UART data = RX)
+    emit(prog, 0xF, 0, 0, 0);           // HLT
+    c.load_program(prog.data(), prog.size());
+
+    // Push a character into RX before running
+    c.get_uart().send_char('Z');
+
+    c.run();
+
+    // Check TX output
+    bool tx_ok = false;
+    if (c.get_uart().has_output()) {
+        uint8_t ch1 = c.get_uart().recv_char();
+        uint8_t ch2 = c.get_uart().recv_char();
+        tx_ok = (ch1 == 'H' && ch2 == 'i');
+    }
+    // Check RX read
+    bool rx_ok = c.get_cpu().get_reg(1) == 'Z';
+    bool pass = tx_ok && rx_ok;
+    std::cout << "test_uart: TX=" << (tx_ok ? "Hi" : "??") << " RX=R1=" << (int)c.get_cpu().get_reg(1)
+              << " (expect Hi, 90) " << (pass ? "PASS" : "FAIL") << "\n";
+    return pass;
+}
+
 int main() {
     std::cout << "=== seedisa CPU tests ===\n\n";
 
@@ -307,6 +347,7 @@ int main() {
     run(test_software_interrupt);
     run(test_hardware_interrupt);
     run(test_timer_device);
+    run(test_uart);
 
     std::cout << "\n" << passed << "/" << total << " tests passed\n";
     return (passed == total) ? 0 : 1;
