@@ -168,7 +168,14 @@ Device raises interrupt
 
 ## Devices
 
-- **Timer** (I/O offset 0x00-0x01): countdown timer, fires interrupt 1
+| Device | I/O Offset | Registers | Interrupt |
+|--------|-----------|-----------|-----------|
+| Timer  | 0x00-0x01 | 0: reload, 1: status/ctrl | 1 |
+| UART   | 0x02-0x03 | 0: data (TX/RX), 1: status | 2 |
+
+**Timer**: Countdown timer. Write reload value to reg 0, enable via reg 1 bit 1. Fires interrupt 1 when counter hits zero.
+
+**UART**: Serial character I/O. Write a byte to reg 0 to transmit. Read reg 0 to receive. Status reg 1: bit 0 = RX data available, bit 1 = TX ready.
 
 ## Building
 
@@ -185,7 +192,7 @@ seedisa/
   arithmetic/   Adder, ALU, decoder, multiplexer
   memory/       RAM, system bus
   cpu/          Register file, PC, IR, flags, control unit, CPU
-  devices/      Timer
+  devices/      Timer, UART
 ```
 
 Part of the [seedsys](https://github.com/seedsys) project. The OS is [seedos](https://github.com/seedsys/seedos).
