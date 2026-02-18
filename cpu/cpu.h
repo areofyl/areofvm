@@ -22,29 +22,28 @@ inline uint8_t from_bits8(const std::array<bool, 8>& bits) {
     return val;
 }
 
-// Convert a 2-bit or 4-bit bool array to an integer
+inline std::array<bool, 16> to_bits16(uint16_t val) {
+    std::array<bool, 16> bits = {};
+    for (int i = 0; i < 16; i++) bits[i] = (val >> i) & 1;
+    return bits;
+}
+
+inline uint16_t from_bits16(const std::array<bool, 16>& bits) {
+    uint16_t val = 0;
+    for (int i = 0; i < 16; i++) if (bits[i]) val |= (1 << i);
+    return val;
+}
+
 template <size_t N>
-inline uint8_t bits_to_int(const std::array<bool, N>& bits) {
-    uint8_t val = 0;
+inline uint16_t bits_to_int(const std::array<bool, N>& bits) {
+    uint16_t val = 0;
     for (size_t i = 0; i < N; i++) if (bits[i]) val |= (1 << i);
     return val;
 }
 
-// CPU — the central processing unit.
-//
-// Instruction set (updated):
-//   0x0 Rs=0: NOP        0x0 Rs=1: PUSH Rd
-//   0x0 Rs=2: POP Rd     0x0 Rs=3: RET
-//   0x1: LDI Rd, imm     0x2: LD Rd, [Rs]
-//   0x3: ST [Rd], Rs     0x4: ADD Rd, Rs
-//   0x5: SUB Rd, Rs      0x6: AND Rd, Rs
-//   0x7: OR Rd, Rs       0x8: MOV Rd, Rs
-//   0x9: CMP Rd, Rs      0xA: JMP imm
-//   0xB: JZ imm          0xC: JNZ imm
-//   0xD: ADDI Rd, imm    0xE: CALL imm
-//   0xF: HLT
-//
-// Each step() call executes exactly one instruction.
+// 8-bit CPU with 16-bit address space.
+// 24-bit instructions (3 bytes): [opcode 4][rd 2][rs 2][imm16]
+// 64KB addressable memory. SP and PC are 16-bit.
 
 class CPU {
 public:
@@ -52,7 +51,7 @@ public:
 
     void reset() {
         pc.reset();
-        sp = 0xFF;
+        sp = 0xFFFF;
         halted = false;
     }
 
@@ -66,10 +65,10 @@ public:
     }
 
     uint8_t get_reg(int i) const { return reg_file.get_reg(i); }
-    uint8_t get_pc() const { return pc.to_int(); }
+    uint16_t get_pc() const { return pc.to_int(); }
     bool get_zero() const { return flags.zero; }
     bool get_carry() const { return flags.carry; }
-    uint8_t get_sp() const { return sp; }
+    uint16_t get_sp() const { return sp; }
 
 private:
     Bus& bus;
@@ -80,9 +79,9 @@ private:
     Flags flags;
     ControlUnit control;
     bool halted = false;
-    uint8_t sp = 0xFF;
+    uint16_t sp = 0xFFFF;
 
-    void jump_to(const std::array<bool, 8>& addr) {
+    void jump_to(const std::array<bool, 16>& addr) {
         pc.clock(false, true, addr);
         pc.clock(true, true, addr);
     }
@@ -103,17 +102,32 @@ private:
         return val;
     }
 
+    // Push 16-bit value (high byte first so low byte is at lower address)
+    void push16(uint16_t val) {
+        push_byte((val >> 8) & 0xFF);
+        push_byte(val & 0xFF);
+    }
+
+    uint16_t pop16() {
+        uint16_t lo = pop_byte();
+        uint16_t hi = pop_byte();
+        return (hi << 8) | lo;
+    }
+
     void fetch() {
-        uint8_t addr = pc.to_int();
-        auto lo_byte = to_bits8(bus.read_byte(addr));
-        auto hi_byte = to_bits8(bus.read_byte(addr + 1));
+        uint16_t addr = pc.to_int();
+        auto b0 = to_bits8(bus.read_byte(addr));
+        auto b1 = to_bits8(bus.read_byte(addr + 1));
+        auto b2 = to_bits8(bus.read_byte(addr + 2));
 
-        ir.load_lo(false, true, lo_byte);
-        ir.load_lo(true, true, lo_byte);
-        ir.load_hi(false, true, hi_byte);
-        ir.load_hi(true, true, hi_byte);
+        ir.load_byte0(false, true, b0);
+        ir.load_byte0(true, true, b0);
+        ir.load_byte1(false, true, b1);
+        ir.load_byte1(true, true, b1);
+        ir.load_byte2(false, true, b2);
+        ir.load_byte2(true, true, b2);
 
-        std::array<bool, 8> unused = {};
+        std::array<bool, 16> unused = {};
         pc.clock(false, false, unused);
         pc.clock(true, false, unused);
     }
@@ -128,32 +142,29 @@ private:
         uint8_t op = bits_to_int(ir.opcode());
         uint8_t rs_field = bits_to_int(ir.rs());
 
-        // Stack and flow control instructions (handled directly)
         if (op == 0x0) {
             switch (rs_field) {
-                case 1: push_byte(from_bits8(reg_file.rd_out)); return;  // PUSH
-                case 2: write_reg(ir.rd(), to_bits8(pop_byte())); return;  // POP
-                case 3: jump_to(to_bits8(pop_byte())); return;  // RET
-                default: return;  // NOP
+                case 1: push_byte(from_bits8(reg_file.rd_out)); return;
+                case 2: write_reg(ir.rd(), to_bits8(pop_byte())); return;
+                case 3: jump_to(to_bits16(pop16())); return;
+                default: return;
             }
         }
-        if (op == 0xE) {  // CALL
-            push_byte(pc.to_int());
-            jump_to(ir.imm8());
+        if (op == 0xE) {
+            push16(pc.to_int());
+            jump_to(ir.imm16());
             return;
         }
 
-        // ALU path
         Mux2<8> alu_b_mux;
         alu_b_mux.select(s.alu_src_imm, reg_file.rs_out, ir.imm8());
         alu.compute(reg_file.rd_out, alu_b_mux.output, s.alu_op0, s.alu_op1);
 
-        // Memory
+        // LD/ST now use imm16 as address
         std::array<bool, 8> mem_data = {};
-        if (s.mem_read)  mem_data = to_bits8(bus.read_byte(from_bits8(reg_file.rs_out)));
-        if (s.mem_write) bus.write_byte(from_bits8(reg_file.rd_out), from_bits8(reg_file.rs_out));
+        if (s.mem_read)  mem_data = to_bits8(bus.read_byte(from_bits16(ir.imm16())));
+        if (s.mem_write) bus.write_byte(from_bits16(ir.imm16()), from_bits8(reg_file.rd_out));
 
-        // Writeback mux
         std::array<bool, 8> write_data = alu.result;
         if (s.reg_src_mem) write_data = mem_data;
         else if (s.reg_src_imm) write_data = ir.imm8();
@@ -164,7 +175,7 @@ private:
             flags.update(false, true, alu.carry, alu.zero);
             flags.update(true, true, alu.carry, alu.zero);
         }
-        if (s.pc_jump) jump_to(ir.imm8());
+        if (s.pc_jump) jump_to(ir.imm16());
         if (s.halt) halted = true;
     }
 };
