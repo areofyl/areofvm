@@ -14,6 +14,129 @@ Just for a learning experience, DO NOT USE THIS ISA!
 - **16-bit** program counter and stack pointer
 - Hardware interrupts with 8-entry IVT at `0xEFF0`
 
+### CPU block diagram
+
+```
+                            ┌─────────────────────────────────────────────┐
+                            │                   CPU                       │
+                            │                                             │
+  ┌──────────┐   16-bit     │  ┌──────────────────────────────────┐       │
+  │          │◄─────────────┼──┤ Program Counter (16-bit)         │       │
+  │          │   address    │  │   +3 each cycle / load on jump   │       │
+  │          │              │  └──────┬──────────────────▲────────┘       │
+  │          │   8-bit      │         │ fetch addr       │ jump addr     │
+  │          ├──────────────┼──►┌─────▼──────────────┐   │                │
+  │          │   data       │   │ Instruction Reg    │   │                │
+  │          │              │   │ (24 bits: 3 bytes) │   │                │
+  │   BUS    │              │   └──┬───┬───┬───┬─────┘   │                │
+  │          │              │      │   │   │   │         │                │
+  │ addr bus │              │  opcode rd  rs  imm16──────┘                │
+  │ data bus │              │   4b  2b  2b  16b                           │
+  │          │              │      │   │   │   │                          │
+  │          │              │  ┌───▼───┼───┼───┼──────────────────────┐   │
+  │          │              │  │ Control Unit          zero flag      │   │
+  │          │              │  │  Decoder(4) ──► one-hot ──► gates   │   │
+  │          │              │  └──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬──┬───┘   │
+  │          │              │     │  │  │  │  │  │  │  │  │  │  │       │
+  │          │              │     │ reg mem alu │ src│  │ flg│ halt     │
+  │          │              │     │ wr  r/w op  │ sel│  │ wr │         │
+  │          │              │     │  │  │  │   │  │ │  │  │  │         │
+  │          │              │  ┌──┼──┼──┼──▼───┼──▼─┼──┼──▼──┼──┐      │
+  │          │              │  │  │  │  │      │    │  │     │  │      │
+  │          │   16-bit     │  │  ▼  │  │  ┌───▼──────▼──┐   │  │      │
+  │          │◄─────────────┼──│ SP  │  │  │ Register    │   │  │      │
+  │          │   stack ops  │  │     │  │  │ File (4x8)  │   │  │      │
+  │          │              │  └──┬──┘  │  │ Rd_out Rs_out│   │  │      │
+  │          │              │     │     │  └──┬───────┬──┘   │  │      │
+  │          │              │     │     │     │  Rd   │ Rs   │  │      │
+  │          │              │     │     │     │       │      │  │      │
+  │          │              │     │     │     │  ┌────▼──┐   │  │      │
+  │          │              │     │     │     │  │ MUX   │   │  │      │
+  │          │              │     │     │     │  │Rs/imm8│   │  │      │
+  │          │              │     │     │     │  └───┬───┘   │  │      │
+  │          │              │     │     │     │      │       │  │      │
+  │          │              │     │     │     ▼      ▼       │  │      │
+  │          │              │     │     │   ┌──────────┐     │  │      │
+  │          │              │     │     │   │  ALU     │     │  │      │
+  │          │              │     │     │   │ ADD SUB  │     │  │      │
+  │          │              │     │     │   │ AND OR   │     │  │      │
+  │          │              │     │     │   └──┬────┬──┘     │  │      │
+  │          │              │     │     │      │    │carry   │  │      │
+  │          │              │     │     │   result  │zero    │  │      │
+  │          │              │     │     │      │    │        │  │      │
+  │          │              │     │     │      │  ┌─▼──────┐ │  │      │
+  │          │              │     │     │      │  │ Flags  │ │  │      │
+  │          │              │     │     │      │  │ Z  C   │─┘  │      │
+  │          │              │     │     │      │  └────────┘    │      │
+  │          │              │     │     │      │                │      │
+  │          │              │     │  ┌──▼──────▼──────┐         │      │
+  │          │   read data  │     │  │ Writeback MUX  │         │      │
+  │          ├──────────────┼─────┼─►│ alu / mem / imm│         │      │
+  │          │              │     │  │ / Rs (mov)     │         │      │
+  │          │   write data │     │  └───────┬────────┘         │      │
+  │          │◄─────────────┼─────┘          │                  │      │
+  │          │              │           write data ──► Register File    │
+  └──────────┘              │                                          │
+       │                    └──────────────────────────────────────────┘
+       │ I/O region (0xF000+)
+  ┌────▼─────┐
+  │  Timer   │──── interrupt 1 ──► CPU.raise_interrupt()
+  │ reload   │
+  │ control  │
+  └──────────┘
+```
+
+### Instruction encoding (24-bit)
+
+```
+byte 0       byte 1       byte 2
+┌───────────┬───────────┬───────────────────┐
+│  imm_lo   │  imm_hi   │ opcode │ Rd │ Rs  │
+│  [7:0]    │  [15:8]   │ [7:4]  │[3:2]│[1:0]│
+└───────────┴───────────┴────────┴────┴─────┘
+     8 bits      8 bits    4 bits  2b    2b
+```
+
+### Fetch-decode-execute cycle
+
+```
+┌───────┐     ┌────────┐     ┌─────────┐
+│ FETCH │────►│ DECODE │────►│ EXECUTE │──┐
+└───────┘     └────────┘     └─────────┘  │
+    ▲                                     │
+    └─────────────────────────────────────┘
+
+FETCH:   PC ──► Bus ──► IR (3 bytes), PC += 3
+DECODE:  IR.opcode ──► Control Unit ──► control signals
+         IR.rd/rs  ──► Register File ──► Rd_out, Rs_out
+EXECUTE: ALU computes, memory reads/writes,
+         writeback mux selects result, flags update,
+         PC jumps if needed
+```
+
+### Interrupt flow
+
+```
+Device raises interrupt
+        │
+        ▼
+┌──────────────────┐     ┌──────────────────┐
+│ check_interrupts │────►│ enter_interrupt   │
+│ (each step)      │     │  push PC + flags  │
+│ int_enabled &&   │     │  int_enabled = 0  │
+│ int_pending?     │     │  PC = IVT[num]    │
+└──────────────────┘     └──────────────────┘
+                                  │
+                     handler runs (interrupts off)
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ RTI              │
+                         │  pop flags + PC  │
+                         │  restore int_en  │
+                         └──────────────────┘
+```
+
 ## Instruction set
 
 | Op | Mnemonic | Description |
