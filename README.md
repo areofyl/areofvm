@@ -143,8 +143,8 @@ Device raises interrupt
 |----|----------|-------------|
 | 0x0 | misc | NOP, CLI, STI, RTI, PUSH, POP, RET, SWI, JC, JNC |
 | 0x1 | LDI Rd, imm | Rd = imm8 |
-| 0x2 | LD Rd, [imm16] | Rd = mem[imm16] |
-| 0x3 | ST Rd, [imm16] | mem[imm16] = Rd |
+| 0x2 | LD Rd, [imm16] | Rd = mem[imm16] (Rs=0); Rd = mem[R2:R3] (Rs=1, indexed) |
+| 0x3 | ST Rd, [imm16] | mem[imm16] = Rd (Rs=0); mem[R2:R3] = Rd (Rs=1, indexed) |
 | 0x4 | ADD Rd, Rs | Rd = Rd + Rs |
 | 0x5 | SUB Rd, Rs | Rd = Rd - Rs |
 | 0x6 | AND Rd, Rs | Rd = Rd & Rs |
