@@ -2,6 +2,7 @@
 #include "../cpu/cpu.h"
 #include <cstdint>
 #include <queue>
+#include <string>
 
 // UART — simple serial character I/O device.
 //
@@ -11,6 +12,8 @@
 //
 // When a character is pushed into the RX buffer from the outside,
 // the device raises interrupt 2 so the CPU knows to read it.
+// Reading the data register when RX has data implicitly consumes
+// one character; if the buffer becomes empty, bit 0 clears.
 
 class UART {
 public:
@@ -38,13 +41,20 @@ public:
         return 0;
     }
 
-    // Host side: push a character into the RX buffer (simulates typing)
+    // --- Host-side API (used by test harness / emulator) ---
+
+    // Push a single character into RX (raises interrupt 2)
     void send_char(uint8_t ch) {
         rx_buf.push(ch);
         cpu.raise_interrupt(2);
     }
 
-    // Host side: pull a character from the TX buffer (simulates screen)
+    // Push a whole string into RX (one interrupt per char)
+    void send_string(const std::string& s) {
+        for (uint8_t ch : s) send_char(ch);
+    }
+
+    // Pull one character from TX output
     bool has_output() const { return !tx_buf.empty(); }
 
     uint8_t recv_char() {
@@ -52,6 +62,16 @@ public:
         uint8_t ch = tx_buf.front();
         tx_buf.pop();
         return ch;
+    }
+
+    // Drain the entire TX buffer as a string
+    std::string recv_string() {
+        std::string out;
+        while (!tx_buf.empty()) {
+            out += static_cast<char>(tx_buf.front());
+            tx_buf.pop();
+        }
+        return out;
     }
 
 private:
