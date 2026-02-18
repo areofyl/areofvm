@@ -41,9 +41,10 @@ inline uint16_t bits_to_int(const std::array<bool, N>& bits) {
     return val;
 }
 
-// 8-bit CPU with 16-bit address space.
-// 24-bit instructions (3 bytes): [opcode 4][rd 2][rs 2][imm16]
-// 64KB addressable memory. SP and PC are 16-bit.
+// IVT sits at 0xFF00. Each entry is 2 bytes (16-bit handler address).
+// Interrupt 0 = reset, 1 = timer, 2 = software interrupt (syscall)
+static constexpr uint16_t IVT_BASE = 0xFF00;
+static constexpr int MAX_INTERRUPTS = 8;
 
 class CPU {
 public:
@@ -53,12 +54,31 @@ public:
         pc.reset();
         sp = 0xFFFF;
         halted = false;
+        int_enabled = false;
+        int_pending = 0;
     }
 
     bool is_halted() const { return halted; }
 
+    // External devices call this to raise an interrupt
+    void raise_interrupt(uint8_t num) {
+        if (num < MAX_INTERRUPTS) int_pending |= (1 << num);
+    }
+
     void step() {
         if (halted) return;
+
+        // Check for pending interrupts before fetch
+        if (int_enabled && int_pending) {
+            for (int i = 0; i < MAX_INTERRUPTS; i++) {
+                if (int_pending & (1 << i)) {
+                    int_pending &= ~(1 << i);
+                    handle_interrupt(i);
+                    return;
+                }
+            }
+        }
+
         fetch();
         auto ctrl = decode();
         execute(ctrl);
@@ -69,6 +89,7 @@ public:
     bool get_zero() const { return flags.zero; }
     bool get_carry() const { return flags.carry; }
     uint16_t get_sp() const { return sp; }
+    bool get_int_enabled() const { return int_enabled; }
 
 private:
     Bus& bus;
@@ -80,6 +101,20 @@ private:
     ControlUnit control;
     bool halted = false;
     uint16_t sp = 0xFFFF;
+    bool int_enabled = false;
+    uint8_t int_pending = 0;
+
+    void handle_interrupt(uint8_t num) {
+        // Save state: push flags byte then PC
+        uint8_t flags_byte = (flags.zero ? 1 : 0) | (flags.carry ? 2 : 0) | (int_enabled ? 4 : 0);
+        push16(pc.to_int());
+        push_byte(flags_byte);
+        int_enabled = false;
+        // Read handler address from IVT
+        uint16_t handler = bus.read_byte(IVT_BASE + num * 2)
+                         | (bus.read_byte(IVT_BASE + num * 2 + 1) << 8);
+        jump_to(to_bits16(handler));
+    }
 
     void jump_to(const std::array<bool, 16>& addr) {
         pc.clock(false, true, addr);
@@ -102,7 +137,6 @@ private:
         return val;
     }
 
-    // Push 16-bit value (high byte first so low byte is at lower address)
     void push16(uint16_t val) {
         push_byte((val >> 8) & 0xFF);
         push_byte(val & 0xFF);
@@ -141,12 +175,38 @@ private:
     void execute(const ControlSignals& s) {
         uint8_t op = bits_to_int(ir.opcode());
         uint8_t rs_field = bits_to_int(ir.rs());
+        uint8_t rd_field = bits_to_int(ir.rd());
 
         if (op == 0x0) {
             switch (rs_field) {
-                case 1: push_byte(from_bits8(reg_file.rd_out)); return;
-                case 2: write_reg(ir.rd(), to_bits8(pop_byte())); return;
-                case 3: jump_to(to_bits16(pop16())); return;
+                case 0:
+                    // Sub-ops via Rd: 0=NOP, 1=CLI, 2=STI, 3=RTI
+                    switch (rd_field) {
+                        case 1: int_enabled = false; return;  // CLI
+                        case 2: int_enabled = true; return;   // STI
+                        case 3: {  // RTI
+                            uint8_t flags_byte = pop_byte();
+                            uint16_t ret_addr = pop16();
+                            flags.zero = flags_byte & 1;
+                            flags.carry = (flags_byte >> 1) & 1;
+                            int_enabled = (flags_byte >> 2) & 1;
+                            jump_to(to_bits16(ret_addr));
+                            return;
+                        }
+                        default: return;  // NOP
+                    }
+                case 1: push_byte(from_bits8(reg_file.rd_out)); return;  // PUSH
+                case 2: write_reg(ir.rd(), to_bits8(pop_byte())); return;  // POP
+                case 3:
+                    if (rd_field == 1) {
+                        // SWI: software interrupt using imm8 as interrupt number
+                        uint8_t int_num = from_bits8(ir.imm8());
+                        handle_interrupt(int_num);
+                        return;
+                    }
+                    // RET
+                    jump_to(to_bits16(pop16()));
+                    return;
                 default: return;
             }
         }
@@ -160,7 +220,6 @@ private:
         alu_b_mux.select(s.alu_src_imm, reg_file.rs_out, ir.imm8());
         alu.compute(reg_file.rd_out, alu_b_mux.output, s.alu_op0, s.alu_op1);
 
-        // LD/ST now use imm16 as address
         std::array<bool, 8> mem_data = {};
         if (s.mem_read)  mem_data = to_bits8(bus.read_byte(from_bits16(ir.imm16())));
         if (s.mem_write) bus.write_byte(from_bits16(ir.imm16()), from_bits8(reg_file.rd_out));
