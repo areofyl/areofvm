@@ -328,6 +328,47 @@ bool test_uart() {
     return pass;
 }
 
+bool test_jc_jnc() {
+    // Test JC (jump if carry) and JNC (jump if no carry).
+    // CMP/SUB sets carry when A >= B (no borrow).
+    //
+    // Test: R0=10, R1=5. CMP R0, R1 → carry set (10 >= 5).
+    //   JC should jump. JNC should not.
+    // Then: R0=3, R1=8. CMP R0, R1 → carry clear (3 < 8).
+    //   JNC should jump. JC should not.
+
+    Computer c;
+    std::vector<uint8_t> prog;
+
+    // Part 1: 10 >= 5 → carry set
+    emit(prog, 0x1, 0, 0, 10);     // LDI R0, 10
+    emit(prog, 0x1, 1, 0, 5);      // LDI R1, 5
+    emit(prog, 0x9, 0, 1, 0);      // CMP R0, R1  → carry=1 (10 >= 5)
+    emit(prog, 0x0, 2, 3, 15);     // JC 15  (Rd=2, Rs=3 → JC)
+    emit(prog, 0x1, 2, 0, 99);     // LDI R2, 99 (should be skipped)
+    // addr 15:
+    emit(prog, 0x1, 2, 0, 1);      // LDI R2, 1 (JC landed here)
+
+    // Part 2: 3 < 8 → carry clear
+    emit(prog, 0x1, 0, 0, 3);      // addr 18: LDI R0, 3
+    emit(prog, 0x1, 1, 0, 8);      // addr 21: LDI R1, 8
+    emit(prog, 0x9, 0, 1, 0);      // addr 24: CMP R0, R1  → carry=0 (3 < 8)
+    emit(prog, 0x0, 3, 3, 33);     // addr 27: JNC 33 (Rd=3, Rs=3 → JNC)
+    emit(prog, 0x1, 3, 0, 99);     // addr 30: LDI R3, 99 (should be skipped)
+    // addr 33:
+    emit(prog, 0x1, 3, 0, 2);      // LDI R3, 2 (JNC landed here)
+    emit(prog, 0xF, 0, 0, 0);      // HLT
+
+    c.load_program(prog.data(), prog.size());
+    c.run();
+
+    bool pass = c.get_cpu().get_reg(2) == 1 && c.get_cpu().get_reg(3) == 2;
+    std::cout << "test_jc:   R2=" << (int)c.get_cpu().get_reg(2)
+              << " R3=" << (int)c.get_cpu().get_reg(3)
+              << " (expect 1, 2) " << (pass ? "PASS" : "FAIL") << "\n";
+    return pass;
+}
+
 int main() {
     std::cout << "=== seedisa CPU tests ===\n\n";
 
@@ -348,6 +389,7 @@ int main() {
     run(test_hardware_interrupt);
     run(test_timer_device);
     run(test_uart);
+    run(test_jc_jnc);
 
     std::cout << "\n" << passed << "/" << total << " tests passed\n";
     return (passed == total) ? 0 : 1;
