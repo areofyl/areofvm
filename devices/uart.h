@@ -54,6 +54,15 @@ public:
         for (uint8_t ch : s) send_char(ch);
     }
 
+    // Push characters without raising interrupts (for polled I/O)
+    void send_char_quiet(uint8_t ch) {
+        rx_buf.push(ch);
+    }
+
+    void send_string_quiet(const std::string& s) {
+        for (uint8_t ch : s) rx_buf.push(ch);
+    }
+
     // Pull one character from TX output
     bool has_output() const { return !tx_buf.empty(); }
 
