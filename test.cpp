@@ -369,6 +369,49 @@ bool test_jc_jnc() {
     return pass;
 }
 
+bool test_indexed_load_store() {
+    // Test LDR and STR — indexed memory access via R2:R3 pointer.
+    //
+    // Store 42 to address 0x0050 using STR, then load it back with LDR.
+    // Also test that we can iterate through memory by incrementing R3.
+    Computer c;
+    std::vector<uint8_t> prog;
+
+    // Set up pointer R2:R3 = 0x0050
+    emit(prog, 0x1, 2, 0, 0x00);       // LDI R2, 0x00 (addr hi)
+    emit(prog, 0x1, 3, 0, 0x50);       // LDI R3, 0x50 (addr lo)
+
+    // Store 42 via STR: mem[R2:R3] = R0
+    emit(prog, 0x1, 0, 0, 42);         // LDI R0, 42
+    emit(prog, 0x3, 0, 1, 0);          // STR R0, [R2:R3] (opcode=3, rs=1)
+
+    // Increment pointer to 0x0051
+    emit(prog, 0xD, 3, 0, 1);          // ADDI R3, 1
+
+    // Store 99 via STR
+    emit(prog, 0x1, 0, 0, 99);         // LDI R0, 99
+    emit(prog, 0x3, 0, 1, 0);          // STR R0, [R2:R3]
+
+    // Load back from 0x0050: reset pointer
+    emit(prog, 0x1, 3, 0, 0x50);       // LDI R3, 0x50
+    emit(prog, 0x2, 0, 1, 0);          // LDR R0, [R2:R3] (opcode=2, rs=1)
+
+    // Load from 0x0051
+    emit(prog, 0xD, 3, 0, 1);          // ADDI R3, 1
+    emit(prog, 0x2, 1, 1, 0);          // LDR R1, [R2:R3]
+
+    emit(prog, 0xF, 0, 0, 0);          // HLT
+
+    c.load_program(prog.data(), prog.size());
+    c.run();
+
+    bool pass = c.get_cpu().get_reg(0) == 42 && c.get_cpu().get_reg(1) == 99;
+    std::cout << "test_idx:  R0=" << (int)c.get_cpu().get_reg(0)
+              << " R1=" << (int)c.get_cpu().get_reg(1)
+              << " (expect 42, 99) " << (pass ? "PASS" : "FAIL") << "\n";
+    return pass;
+}
+
 int main() {
     std::cout << "=== seedisa CPU tests ===\n\n";
 
@@ -390,6 +433,7 @@ int main() {
     run(test_timer_device);
     run(test_uart);
     run(test_jc_jnc);
+    run(test_indexed_load_store);
 
     std::cout << "\n" << passed << "/" << total << " tests passed\n";
     return (passed == total) ? 0 : 1;
