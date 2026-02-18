@@ -51,6 +51,7 @@ static constexpr int MAX_INTERRUPTS = 8;
 //   Rs=1: PUSH Rd
 //   Rs=2: POP Rd
 //   Rs=3: Rd=0 RET, Rd=1 SWI (imm8 = interrupt number)
+//         Rd=2 JC imm16 (jump if carry), Rd=3 JNC imm16 (jump if no carry)
 
 class CPU {
 public:
@@ -196,8 +197,11 @@ private:
             case 1: push_byte(from_bits8(reg_file.rd_out)); return;       // PUSH
             case 2: write_reg(ir.rd(), to_bits8(pop_byte())); return;     // POP
             case 3:
-                if (rd == 1) { enter_interrupt(from_bits8(ir.imm8())); return; }  // SWI
-                jump_to(to_bits16(pop16())); return;                               // RET
+                if (rd == 0) { jump_to(to_bits16(pop16())); return; }              // RET
+                if (rd == 1) { enter_interrupt(from_bits8(ir.imm8())); return; }   // SWI
+                if (rd == 2) { if (flags.carry) jump_to(ir.imm16()); return; }     // JC
+                if (rd == 3) { if (!flags.carry) jump_to(ir.imm16()); return; }    // JNC
+                return;
         }
     }
 
